@@ -14,7 +14,7 @@ export const redis = new Redis({
 });
 
 export const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-export const chatModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+export const chatModel = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 export const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
 export const COLLECTION_NAME = "news_articles";
