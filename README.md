@@ -4,7 +4,7 @@ The intelligent backend for the Voosh News Chatbot. This API orchestrates the RA
 
 ## **🚀 Live API**
 
-**Base URL:** \[INSERT\_YOUR\_RENDER\_URL\_HERE\] (e.g., https://voosh-backend.onrender.com)
+**Base URL:**https://voosh-bot-backend.onrender.com
 
 ## **🏗️ System Architecture (MVC)**
 
@@ -37,7 +37,7 @@ We use **Upstash Redis** to make our stateless API "stateful".
 ## **🛠️ Tech Stack**
 
 * **Runtime:** Node.js, Express  
-* **LLM:** Google Gemini (gemini-2.5-flash-lite / 1.5-flash)  
+* **LLM:** Google Gemini (gemini-2.5-flash-lite)  
 * **Vector Database:** Qdrant (Cloud)  
 * **Caching:** Upstash Redis (Serverless)  
 * **Tools:** rss-parser (Data fetching), child\_process (Script execution)
@@ -65,7 +65,7 @@ Triggers the ingestion script to fetch and index new articles.
 ## **🏃‍♂️ Local Setup**
 
 1. **Clone the repo:**  
-   git clone \<your-repo-url\>  
+   git clone https://github.com/Arman6117/voosh-bot-backend  
    cd voosh-backend
 
 2. **Install Dependencies:**  
