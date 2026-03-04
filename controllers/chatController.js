@@ -1,89 +1,65 @@
-import { redis, qdrant, chatModel, COLLECTION_NAME } from "../config/client.js";
+import { redis, qdrant, chatModel, fallbackModel, COLLECTION_NAME } from "../config/client.js";
 import embed from "../helpers/embedding.js";
+
+// Helper for retries + fallback
+const generateWithFallback = async (prompt) => {
+  const models = [chatModel, fallbackModel];
+  
+  for (const model of models) {
+    let delay = 1000;
+    for (let i = 0; i < 2; i++) { // 2 retries per model
+      try {
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+      } catch (error) {
+        const is503 = error.status === 503 || error.message?.includes("503");
+        if (is503 && i < 1) {
+          await new Promise(res => setTimeout(res, delay * (Math.random() + 0.5)));
+          delay *= 2;
+          continue;
+        }
+        break; // Move to the next model if not a 503 or retries exhausted
+      }
+    }
+  }
+  throw new Error("All models are currently unavailable.");
+};
 
 export const handleChat = async (req, res) => {
   const { message, sessionId } = req.body;
   const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  if (!message || !sessionId) {
-    return res.status(400).json({ error: "Missing message or sessionId" });
-  }
+  if (!message || !sessionId) return res.status(400).json({ error: "Missing data" });
 
   const historyKey = `chat:${sessionId}`;
 
   try {
- 
-    const userMsgObj = { role: "user", content: message, time: currentTime };
-    await redis.rpush(historyKey, JSON.stringify(userMsgObj));
-    await redis.expire(historyKey, 86400);
-
-    const rawHistory = await redis.lrange(historyKey, 0, -1);
-    const history = rawHistory.map((item) => {
-        try { return JSON.parse(item); } catch (e) { return null; }
-    }).filter(i => i !== null);
-
+    // 1. Context & History Retrieval
     const vector = await embed(message);
-    const searchResults = await qdrant.search(COLLECTION_NAME, {
-      vector: vector,
-      limit: 3,
-    });
+    const [rawHistory, searchResults] = await Promise.all([
+      redis.lrange(historyKey, 0, -1),
+      qdrant.search(COLLECTION_NAME, { vector, limit: 3 })
+    ]);
 
-    const contextText = searchResults
-      .map((item) => `Title: ${item.payload.title}\nContent: ${item.payload.content}`)
-      .join("\n\n");
+    const history = rawHistory.map(item => JSON.parse(item)).filter(Boolean);
+    const contextText = searchResults.map(item => item.payload.content).join("\n\n");
 
-    const prompt = `
-      You are a helpful news assistant. Use the following CONTEXT to answer the user.
-      CONTEXT: ${contextText}
-      CHAT HISTORY: ${history.map((m) => `${m.role}: ${m.content}`).join("\n")}
-      USER QUESTION: ${message}
-    `;
+    const prompt = `CONTEXT: ${contextText}\nHISTORY: ${history.map(m => m.content).join("\n")}\nUSER: ${message}`;
 
-    const result = await chatModel.generateContent(prompt);
-    const botReply = result.response.text();
+    // 2. Generate with Fallback
+    const botReply = await generateWithFallback(prompt);
 
-    const botMsgObj = { role: "assistant", content: botReply, time: currentTime };
-    await redis.rpush(historyKey, JSON.stringify(botMsgObj));
+    // 3. Save both messages ONLY on success
+    const userMsg = JSON.stringify({ role: "user", content: message, time: currentTime });
+    const botMsg = JSON.stringify({ role: "assistant", content: botReply, time: currentTime });
+    
+    await redis.rpush(historyKey, userMsg, botMsg);
+    await redis.expire(historyKey, 86400);
 
     res.json({ reply: botReply });
 
   } catch (error) {
     console.error("Controller Error:", error);
-    
-    const errorMsgObj = { role: "assistant", content: "⚠️ I encountered an error answering that.", time: currentTime };
-    await redis.rpush(historyKey, JSON.stringify(errorMsgObj));
-    
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-};
-
-export const getChatHistory = async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const historyKey = `chat:${sessionId}`;
-    
-    const rawHistory = await redis.lrange(historyKey, 0, -1);
-    
-
-    const history = rawHistory.map((item) => {
-        try {
-            if (typeof item === 'object' && item !== null) {
-                return item;
-            }
-            if (typeof item === 'string') {
-                return JSON.parse(item);
-            }
-            return null;
-        } catch (e) {
-            console.error("⚠️ Failed to parse item:", item);
-            return null; 
-        }
-    }).filter(i => i !== null);
-
-    res.json(history);
-
-  } catch (error) {
-    console.error("History Error:", error);
-    res.status(500).json({ error: "Failed to fetch history" });
+    res.status(503).json({ error: "AI service is currently busy. Try again in a moment." });
   }
 };
