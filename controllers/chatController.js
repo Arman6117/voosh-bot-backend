@@ -63,3 +63,63 @@ export const handleChat = async (req, res) => {
     res.status(503).json({ error: "AI service is currently busy. Try again in a moment." });
   }
 };
+export const getChatHistory = async (req, res) => {
+
+  try {
+
+    const { sessionId } = req.params;
+
+    const historyKey = `chat:${sessionId}`;
+
+   
+
+    const rawHistory = await redis.lrange(historyKey, 0, -1);
+
+   
+
+
+
+    const history = rawHistory.map((item) => {
+
+        try {
+
+            if (typeof item === 'object' && item !== null) {
+
+                return item;
+
+            }
+
+            if (typeof item === 'string') {
+
+                return JSON.parse(item);
+
+            }
+
+            return null;
+
+        } catch (e) {
+
+            console.error("⚠️ Failed to parse item:", item);
+
+            return null;
+
+        }
+
+    }).filter(i => i !== null);
+
+
+
+    res.json(history);
+
+
+
+  } catch (error) {
+
+    console.error("History Error:", error);
+
+    res.status(500).json({ error: "Failed to fetch history" });
+
+  }
+
+};
+
